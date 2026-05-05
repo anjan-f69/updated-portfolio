@@ -4,10 +4,22 @@
 
 // ── LOADER ──
 window.addEventListener('load', () => {
-  setTimeout(() => {
-    const loader = document.getElementById('loader');
-    if (loader) { loader.classList.add('hidden'); setTimeout(() => loader.remove(), 600); }
-  }, 1200);
+  const loader = document.getElementById('loader');
+  const loaderText = document.getElementById('loader-text');
+  if (!loader || !loaderText) return;
+  const steps = [
+    '$ resolving anjansharma7.com.np...',
+    '→ DNS query sent',
+    '→ 104.21.xx.xx resolved',
+    '→ TLS 1.3 handshake ✓',
+    '→ connection established'
+  ];
+  let i = 0;
+  const interval = setInterval(() => {
+    i++;
+    if (i < steps.length) { loaderText.textContent = steps[i]; }
+    else { clearInterval(interval); loader.classList.add('hidden'); setTimeout(() => loader.remove(), 600); }
+  }, 150);
 });
 
 // ── NAV ──
