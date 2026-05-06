@@ -2,6 +2,60 @@
 // ANJAN SHARMA — PORTFOLIO INTERACTIONS
 // ═══════════════════════════════════════════
 
+// ── TYPEWRITER NAV LOGO ──
+(function initTypewriter() {
+  const phrases = ['Anjan Sharma', 'Cyber Security Analyst', 'Blue Team'];
+  const typeSpeed = 90;      // ms per character when typing
+  const deleteSpeed = 50;    // ms per character when deleting
+  const pauseAfterType = 2000; // ms to wait after fully typed
+  const pauseAfterDelete = 500; // ms to wait after fully deleted
+
+  let phraseIndex = 0;
+  let charIndex = 0;
+  let isDeleting = false;
+
+  function tick() {
+    const el = document.getElementById('typewriter-text');
+    if (!el) { setTimeout(tick, 200); return; }
+
+    const current = phrases[phraseIndex];
+
+    if (!isDeleting) {
+      // Typing
+      charIndex++;
+      el.textContent = current.substring(0, charIndex);
+
+      if (charIndex === current.length) {
+        // Finished typing — pause then start deleting
+        isDeleting = true;
+        setTimeout(tick, pauseAfterType);
+        return;
+      }
+      setTimeout(tick, typeSpeed);
+    } else {
+      // Deleting
+      charIndex--;
+      el.textContent = current.substring(0, charIndex);
+
+      if (charIndex === 0) {
+        // Finished deleting — move to next phrase
+        isDeleting = false;
+        phraseIndex = (phraseIndex + 1) % phrases.length;
+        setTimeout(tick, pauseAfterDelete);
+        return;
+      }
+      setTimeout(tick, deleteSpeed);
+    }
+  }
+
+  // Start the typewriter after a short delay (let the page load)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(tick, 300));
+  } else {
+    setTimeout(tick, 300);
+  }
+})();
+
 // ── LOADER ──
 window.addEventListener('load', () => {
   const loader = document.getElementById('loader');
@@ -20,6 +74,19 @@ window.addEventListener('load', () => {
     if (i < steps.length) { loaderText.textContent = steps[i]; }
     else { clearInterval(interval); loader.classList.add('hidden'); setTimeout(() => loader.remove(), 600); }
   }, 150);
+});
+
+// ── IMAGE FALLBACK (replaces inline onerror — CSP compliant) ──
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.tool-logo').forEach(img => {
+    img.addEventListener('error', function () {
+      this.style.display = 'none';
+      const fallback = this.nextElementSibling;
+      if (fallback && fallback.classList.contains('tool-logo-fallback')) {
+        fallback.style.display = 'flex';
+      }
+    });
+  });
 });
 
 // ── NAV ──
@@ -94,10 +161,13 @@ let isFullscreen = false;
 function openTerminal() {
   if (!overlay) return;
   overlay.classList.add('active');
+  overlay.classList.remove('minimized-mode');
   isTerminalOpen = true;
   // Auto-fullscreen
   termWindow?.classList.add('fullscreen');
+  termWindow?.classList.remove('minimized');
   isFullscreen = true;
+  isMinimized = false;
   termInput?.focus();
   document.body.style.overflow = 'hidden';
   // Show welcome on first open
@@ -105,7 +175,7 @@ function openTerminal() {
 }
 
 function closeTerminal() {
-  overlay?.classList.remove('active');
+  overlay?.classList.remove('active', 'minimized-mode');
   isTerminalOpen = false;
   isMinimized = false;
   isFullscreen = false;
@@ -114,14 +184,37 @@ function closeTerminal() {
 }
 
 function toggleMinimize() {
-  isMinimized = !isMinimized;
-  termWindow?.classList.toggle('minimized', isMinimized);
-  if (!isMinimized) termInput?.focus();
+  if (!isMinimized) {
+    // Minimize: hide overlay background, dock terminal bar to bottom
+    isMinimized = true;
+    isFullscreen = false;
+    termWindow?.classList.remove('fullscreen');
+    termWindow?.classList.add('minimized');
+    overlay?.classList.add('minimized-mode');
+    document.body.style.overflow = ''; // allow scrolling homepage
+  } else {
+    // Restore from minimized: go back to fullscreen
+    isMinimized = false;
+    isFullscreen = true;
+    termWindow?.classList.remove('minimized');
+    termWindow?.classList.add('fullscreen');
+    overlay?.classList.remove('minimized-mode');
+    document.body.style.overflow = 'hidden';
+    termInput?.focus();
+  }
 }
 
 function toggleMaximize() {
+  if (isMinimized) {
+    // Restore from minimized state
+    isMinimized = false;
+    termWindow?.classList.remove('minimized');
+    overlay?.classList.remove('minimized-mode');
+    document.body.style.overflow = 'hidden';
+  }
   isFullscreen = !isFullscreen;
   termWindow?.classList.toggle('fullscreen', isFullscreen);
+  if (isFullscreen) termInput?.focus();
 }
 
 // Button handlers
@@ -129,13 +222,18 @@ termClose?.addEventListener('click', e => { e.stopPropagation(); closeTerminal()
 termMinimize?.addEventListener('click', e => { e.stopPropagation(); toggleMinimize(); });
 termMaximize?.addEventListener('click', e => { e.stopPropagation(); toggleMaximize(); });
 
+// Clicking the minimized terminal bar restores it
+termWindow?.querySelector('.terminal__bar')?.addEventListener('click', () => {
+  if (isMinimized) toggleMinimize();
+});
+
 // Open terminal triggers
 document.getElementById('hero-terminal-btn')?.addEventListener('click', openTerminal);
 document.addEventListener('keydown', e => {
   if (e.key === '`' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); isTerminalOpen ? closeTerminal() : openTerminal(); }
   if (e.key === 'Escape' && isTerminalOpen) closeTerminal();
 });
-overlay?.addEventListener('click', e => { if (e.target === overlay) closeTerminal(); else termInput?.focus(); });
+overlay?.addEventListener('click', e => { if (e.target === overlay && !isMinimized) closeTerminal(); else if (!isMinimized) termInput?.focus(); });
 
 // ── VIRTUAL FILE SYSTEM ──
 let currentPath = '/home/anjan';
@@ -174,6 +272,11 @@ function showWelcome() {
     { text: '', cls: 'output' },
   ];
   lines.forEach(l => appendLine(l.text, l.cls));
+}
+
+// ── SECURITY: Regex escape to prevent ReDoS (OWASP A03: Injection) ──
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 const commands = {
@@ -263,8 +366,8 @@ const commands = {
   head: (args) => { let n=10,f=args[0]; if(args[0]==='-n'){n=parseInt(args[1])||10;f=args[2]} if(!f) return 'Usage: head [-n N] <file>'; const nd=vfs[resolvePath(f)]; if(!nd) return `head: ${f}: No such file or directory`; return nd.content.split('\n').slice(0,n).join('\n'); },
   tail: (args) => { let n=10,f=args[0]; if(args[0]==='-n'){n=parseInt(args[1])||10;f=args[2]} if(!f) return 'Usage: tail [-n N] <file>'; const nd=vfs[resolvePath(f)]; if(!nd) return `tail: ${f}: No such file or directory`; return nd.content.split('\n').slice(-n).join('\n'); },
   wc: (args) => { if(!args[0]) return 'Usage: wc <file>'; const nd=vfs[resolvePath(args[0])]; if(!nd) return `wc: ${args[0]}: No such file or directory`; const l=nd.content.split('\n').length,w=nd.content.split(/\s+/).filter(Boolean).length,b=new TextEncoder().encode(nd.content).length; return ` ${l} ${w} ${b} ${args[0]}`; },
-  grep: (args) => { if(!args[0]||!args[1]) return 'Usage: grep <pattern> <file>'; const nd=vfs[resolvePath(args[1])]; if(!nd) return `grep: ${args[1]}: No such file or directory`; const re=new RegExp(args[0],'i'); return nd.content.split('\n').filter(l=>re.test(l)).join('\n')||''; },
-  find: (args) => { const base=args[0]?resolvePath(args[0]):currentPath; const ni=args.indexOf('-name'); const pat=ni>=0?args[ni+1]:null; const r=[]; Object.keys(vfs).forEach(p=>{if(!p.startsWith(base))return;if(pat){const bn=p.split('/').pop();const re=new RegExp(pat.replace(/\*/g,'.*'),'i');if(!re.test(bn))return}r.push(p)}); return r.join('\n'); },
+  grep: (args) => { if(!args[0]||!args[1]) return 'Usage: grep <pattern> <file>'; const nd=vfs[resolvePath(args[1])]; if(!nd) return `grep: ${args[1]}: No such file or directory`; const re=new RegExp(escapeRegex(args[0]),'i'); return nd.content.split('\n').filter(l=>re.test(l)).join('\n')||''; },
+  find: (args) => { const base=args[0]?resolvePath(args[0]):currentPath; const ni=args.indexOf('-name'); const pat=ni>=0?args[ni+1]:null; const r=[]; Object.keys(vfs).forEach(p=>{if(!p.startsWith(base))return;if(pat){const bn=p.split('/').pop();const re=new RegExp(escapeRegex(pat).replace(/\\\*/g,'.*'),'i');if(!re.test(bn))return}r.push(p)}); return r.join('\n'); },
   mkdir: (args) => { if(!args[0]) return 'mkdir: missing operand'; const full=resolvePath(args[0])+'/'; if(vfs[full]) return `mkdir: '${args[0]}': File exists`; vfs[full]={type:'dir',children:[]}; const p=vfs[currentPath]||vfs[currentPath+'/']; if(p?.children) p.children.push(args[0]+'/'); return ''; },
   touch: (args) => { if(!args[0]) return 'touch: missing file operand'; const full=resolvePath(args[0]); vfs[full]=vfs[full]||{type:'file',content:''}; const p=vfs[currentPath]||vfs[currentPath+'/']; if(p?.children&&!p.children.includes(args[0])) p.children.push(args[0]); return ''; },
   rm: (args) => { if(!args[0]) return 'rm: missing operand'; const full=resolvePath(args[args.length-1]); if(!vfs[full]&&!vfs[full+'/']) return `rm: '${args[args.length-1]}': No such file or directory`; if((vfs[full]||vfs[full+'/'])?.type==='dir'&&!args.includes('-r')&&!args.includes('-rf')) return `rm: '${args[args.length-1]}': Is a directory`; if(args.includes('-rf')||args.includes('-r')){Object.keys(vfs).filter(k=>k.startsWith(full)).forEach(k=>delete vfs[k])}else{delete vfs[full]} return ''; },
@@ -285,7 +388,7 @@ const commands = {
   printenv: () => `HOME=/home/anjan\nUSER=anjan\nSHELL=/bin/bash\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin\nTERM=xterm-256color`,
   history: () => commandHistory.map((c,i) => `  ${String(i+1).padStart(3)}  ${c}`).join('\n'),
   clear: () => '__CLEAR__',
-  exit: () => { appendLine('Closing session...', 'accent'); setTimeout(() => { window.close(); closeTerminal(); }, 500); return ''; },
+  exit: () => { appendLine('Closing session...', 'accent'); setTimeout(() => { window.location.href = 'https://www.google.com'; }, 500); return ''; },
   about: () => vfs['/home/anjan/about.txt'].content,
   skills: () => vfs['/home/anjan/skills.json'].content,
   certs: () => '• ISO/IEC 27001:2022 Lead Auditor — Mastermind\n• AWS Academy Cloud Foundations — AWS\n• Google Cyber Security Professional — Google',
@@ -332,6 +435,7 @@ termInput?.addEventListener('keydown', e => {
 
   if (e.key === 'Enter') {
     const raw = termInput.value.trim();
+    if (raw.length > 500) { appendLine('Error: input too long (max 500 chars)', 'output'); termInput.value = ''; return; }
     termInput.value = '';
     historyIndex = -1;
     if (!raw) return;
@@ -346,7 +450,7 @@ termInput?.addEventListener('keydown', e => {
       const cmd = parts[0].toLowerCase();
       const args = parts.slice(1);
       if (pipeIn !== null) {
-        if (cmd === 'grep') { const re = new RegExp(args[0] || '', 'i'); result = pipeIn.split('\n').filter(l => re.test(l)).join('\n'); }
+        if (cmd === 'grep') { const re = new RegExp(escapeRegex(args[0] || ''), 'i'); result = pipeIn.split('\n').filter(l => re.test(l)).join('\n'); }
         else result = pipeIn;
         pipeIn = result; continue;
       }
